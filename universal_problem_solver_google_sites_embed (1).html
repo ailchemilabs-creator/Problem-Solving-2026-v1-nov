@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Universal Problem Solver</title>
+    
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel for compiling JSX in the browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // Define the 6 stages using FontAwesome classes
+        const STAGES = [
+          {
+            id: 'goal',
+            title: '1. Goal',
+            icon: 'fas fa-bullseye',
+            whatHappens: 'Identify the desired outcome.',
+            question: 'What do I want?',
+            placeholder: 'e.g., I want to increase my monthly savings by $500.'
+          },
+          {
+            id: 'gap',
+            title: '2. Gap',
+            icon: 'fas fa-unlink',
+            whatHappens: 'Identify what separates you from that outcome.',
+            question: 'What is preventing it?',
+            placeholder: 'e.g., I spend too much on eating out and impulse subscriptions.'
+          },
+          {
+            id: 'understanding',
+            title: '3. Understanding',
+            icon: 'fas fa-lightbulb',
+            whatHappens: "Examine the problem's structure, causes, and constraints.",
+            question: 'Why does this gap exist?',
+            placeholder: 'e.g., I am too tired to cook after work, and I forget to cancel trials.'
+          },
+          {
+            id: 'solutions',
+            title: '4. Possible Solutions',
+            icon: 'fas fa-wrench',
+            whatHappens: 'Identify ways to overcome the gap.',
+            question: 'What could work?',
+            placeholder: 'e.g., 1. Meal prep on Sundays. 2. Set calendar alerts for trial expirations. 3. Automate savings transfers.'
+          },
+          {
+            id: 'action',
+            title: '5. Action',
+            icon: 'fas fa-play',
+            whatHappens: 'Apply or test a promising solution.',
+            question: 'What should I do?',
+            placeholder: 'e.g., This Sunday, I will batch-cook 3 dinners and audit my credit card statement for subscriptions.'
+          },
+          {
+            id: 'feedback',
+            title: '6. Feedback',
+            icon: 'fas fa-sync-alt',
+            whatHappens: 'Compare the result with the goal.',
+            question: 'Did it work?',
+            placeholder: 'e.g., Meal prepping saved me $100 this week, but I still missed one subscription. I need to refine my tracking system.'
+          }
+        ];
+
+        const createNewSession = () => ({
+          id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
+          title: 'New Problem',
+          isManuallyRenamed: false,
+          createdAt: Date.now(),
+          currentStep: 0,
+          isSummaryView: false,
+          formData: { 
+            goal: '', gap: '', understanding: '', solutions: '', action: '', feedback: '',
+            reqChange: '', availableMeans: '', patternObstacle: '', patternMissing: '',
+            patternMethod: '', patternConditions: '', patternDecompose: ''
+          }
+        });
+
+        function ProblemSolverApp() {
+          const [sessions, setSessions] = useState([]);
+          const [activeSessionId, setActiveSessionId] = useState(null);
+          const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+          const [isLoaded, setIsLoaded] = useState(false);
+          const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+          const [editingSessionId, setEditingSessionId] = useState(null);
+          const [editTitle, setEditTitle] = useState('');
+
+          useEffect(() => {
+            const savedSessionsData = localStorage.getItem('problemSolverSessions');
+            
+            if (savedSessionsData) {
+              try {
+                const parsed = JSON.parse(savedSessionsData);
+                setSessions(parsed.sessions || []);
+                setActiveSessionId(parsed.activeSessionId);
+              } catch (e) {
+                console.error("Could not parse saved sessions", e);
+              }
+            } else {
+              const legacyData = localStorage.getItem('problemSolverData');
+              const initialSession = createNewSession();
+              
+              if (legacyData) {
+                try {
+                  const parsedLegacy = JSON.parse(legacyData);
+                  initialSession.formData = parsedLegacy;
+                  initialSession.title = parsedLegacy.goal 
+                    ? parsedLegacy.goal.substring(0, 30) + (parsedLegacy.goal.length > 30 ? '...' : '') 
+                    : 'Imported Problem';
+                } catch(e) {}
+              }
+              setSessions([initialSession]);
+              setActiveSessionId(initialSession.id);
+            }
+            setIsLoaded(true);
+          }, []);
+
+          useEffect(() => {
+            if (isLoaded && sessions.length > 0) {
+              localStorage.setItem('problemSolverSessions', JSON.stringify({ sessions, activeSessionId }));
+            }
+          }, [sessions, activeSessionId, isLoaded]);
+
+          const activeSession = sessions.find(s => s.id === activeSessionId) || sessions[0];
+
+          const updateActiveSession = (updates) => {
+            setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, ...updates } : s));
+          };
+
+          const handleInputChange = (e) => {
+            const { name, value } = e.target;
+            const newFormData = { ...activeSession.formData, [name]: value };
+            const updates = { formData: newFormData };
+            
+            if (name === 'goal' && !activeSession.isManuallyRenamed) {
+              updates.title = value.trim() === '' 
+                ? 'New Problem' 
+                : value.substring(0, 30) + (value.length > 30 ? '...' : '');
+            }
+            
+            updateActiveSession(updates);
+          };
+
+          const handleNext = () => {
+            if (activeSession.currentStep < STAGES.length - 1) {
+              updateActiveSession({ currentStep: activeSession.currentStep + 1 });
+            } else {
+              updateActiveSession({ isSummaryView: true });
+            }
+          };
+
+          const handlePrev = () => {
+            if (activeSession.currentStep > 0) {
+              updateActiveSession({ currentStep: activeSession.currentStep - 1 });
+            }
+          };
+
+          const handleIterate = () => {
+            updateActiveSession({ isSummaryView: false, currentStep: 2 });
+          };
+
+          const handleNewSession = () => {
+            const newSession = createNewSession();
+            setSessions(prev => [newSession, ...prev]);
+            setActiveSessionId(newSession.id);
+            setIsSidebarOpen(false);
+          };
+
+          const startEditing = (e, session) => {
+            e.stopPropagation();
+            setEditingSessionId(session.id);
+            setEditTitle(session.title);
+          };
+
+          const saveEditing = (id) => {
+            if (editTitle.trim()) {
+              setSessions(prev => prev.map(s => 
+                s.id === id ? { ...s, title: editTitle.trim(), isManuallyRenamed: true } : s
+              ));
+            }
+            setEditingSessionId(null);
+            setEditTitle('');
+          };
+
+          const cancelEditing = () => {
+            setEditingSessionId(null);
+            setEditTitle('');
+          };
+
+          const handleDeleteSession = (id) => {
+            const newSessions = sessions.filter(s => s.id !== id);
+            if (newSessions.length === 0) {
+              const fallbackSession = createNewSession();
+              setSessions([fallbackSession]);
+              setActiveSessionId(fallbackSession.id);
+            } else {
+              setSessions(newSessions);
+              if (activeSessionId === id) {
+                setActiveSessionId(newSessions[0].id);
+              }
+            }
+            setConfirmDeleteId(null);
+          };
+
+          const exportData = () => {
+            const textContent = STAGES.map(stage => {
+              return `${stage.title}\nQuestion: ${stage.question}\nYour Answer:\n${activeSession.formData[stage.id] || 'Not answered yet.'}\n\n`;
+            }).join('---\n\n');
+
+            const blob = new Blob([textContent], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${activeSession.title.replace(/\s+/g, '_')}_Framework.txt`;
+            a.click();
+            URL.revokeObjectURL(url);
+          };
+
+          if (!isLoaded || !activeSession) return <div className="min-h-screen bg-slate-900 text-slate-200 flex items-center justify-center">Loading Workspace...</div>;
+
+          const currentStageInfo = STAGES[activeSession.currentStep];
+
+          return (
+            <div className="flex h-screen bg-slate-900 text-slate-200 font-sans overflow-hidden">
+              
+              {isSidebarOpen && (
+                <div 
+                  className="fixed inset-0 bg-black/50 z-40 lg:hidden backdrop-blur-sm" 
+                  onClick={() => setIsSidebarOpen(false)} 
+                />
+              )}
+
+              <div className={`fixed inset-y-0 left-0 z-50 w-72 bg-slate-950 border-r border-slate-800 transform transition-transform duration-300 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:relative lg:translate-x-0 flex flex-col shadow-2xl lg:shadow-none`}>
+                <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-950">
+                  <h2 className="font-bold text-slate-200 text-lg flex items-center gap-2">
+                    <i className="fas fa-bullseye text-orange-500" style={{fontSize: '20px'}}></i> Workspace
+                  </h2>
+                  <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-slate-400 hover:text-slate-200 p-2 rounded-lg hover:bg-slate-800 transition-colors">
+                    <i className="fas fa-times" style={{fontSize: '24px'}}></i>
+                  </button>
+                </div>
+                
+                <div className="p-4">
+                  <button 
+                    onClick={handleNewSession}
+                    className="w-full flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-500 text-white py-2.5 px-4 rounded-xl font-medium transition-all shadow-lg shadow-orange-600/10 hover:shadow-orange-600/30"
+                  >
+                    <i className="fas fa-plus" style={{fontSize: '20px'}}></i> New Problem
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-3 space-y-1">
+                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 px-2">History</div>
+                  {sessions.map(session => (
+                    <div 
+                      key={session.id}
+                      className={`group flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all ${session.id === activeSessionId ? 'bg-slate-800 text-orange-400 shadow-md border border-slate-700' : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200 border border-transparent'}`}
+                      onClick={() => { 
+                        if(editingSessionId !== session.id) { 
+                          setActiveSessionId(session.id); 
+                          setIsSidebarOpen(false); 
+                        } 
+                      }}
+                    >
+                      {editingSessionId === session.id ? (
+                        <div className="flex-1 flex items-center pr-2" onClick={e => e.stopPropagation()}>
+                          <input
+                            autoFocus
+                            value={editTitle}
+                            onChange={(e) => setEditTitle(e.target.value)}
+                            onBlur={() => saveEditing(session.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') saveEditing(session.id);
+                              if (e.key === 'Escape') cancelEditing();
+                            }}
+                            className="w-full bg-slate-900 border border-orange-500 rounded text-slate-200 px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-orange-500"
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-3 overflow-hidden flex-1 pr-2">
+                           <i className={`fas fa-comment-alt shrink-0 ${session.id === activeSessionId ? 'text-orange-400' : 'text-slate-500 group-hover:text-slate-300'}`} style={{fontSize: '16px'}}></i>
+                           <span className="truncate text-sm font-medium">{session.title}</span>
+                        </div>
+                      )}
+                      
+                      {editingSessionId !== session.id && (
+                        <div className="flex items-center shrink-0">
+                          {confirmDeleteId === session.id ? (
+                            <button 
+                               onClick={(e) => { e.stopPropagation(); handleDeleteSession(session.id); }}
+                               className="text-red-300 hover:text-red-200 text-xs font-bold px-2 py-1 bg-red-500/20 rounded-lg animate-pulse"
+                            >
+                               Sure?
+                            </button>
+                          ) : (
+                            <div className="flex opacity-0 group-hover:opacity-100 transition-all">
+                              <button 
+                                 onClick={(e) => startEditing(e, session)}
+                                 className="hover:text-orange-400 p-1.5 rounded-md hover:bg-slate-700"
+                                 title="Rename Problem"
+                              >
+                                 <i className="fas fa-pencil-alt" style={{fontSize: '16px'}}></i>
+                              </button>
+                              <button 
+                                 onClick={(e) => { 
+                                   e.stopPropagation(); 
+                                   setConfirmDeleteId(session.id); 
+                                   setTimeout(() => setConfirmDeleteId(null), 3000); 
+                                 }}
+                                 className="hover:text-red-400 p-1.5 rounded-md hover:bg-slate-700"
+                                 title="Delete Problem"
+                              >
+                                 <i className="fas fa-trash-alt" style={{fontSize: '16px'}}></i>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex-1 flex flex-col h-full overflow-y-auto relative bg-[#0f172a]">
+                
+                <div className="lg:hidden flex items-center p-4 border-b border-slate-800 bg-slate-950/90 backdrop-blur-md sticky top-0 z-30 shadow-sm">
+                   <button onClick={() => setIsSidebarOpen(true)} className="text-slate-400 hover:text-white p-2 -ml-2 rounded-lg hover:bg-slate-800 transition-colors">
+                      <i className="fas fa-bars" style={{fontSize: '24px'}}></i>
+                   </button>
+                   <span className="ml-3 font-semibold text-slate-200 truncate">{activeSession.title}</span>
+                </div>
+
+                <div className="flex-1 p-3 sm:p-4 md:p-8 flex flex-col max-w-4xl mx-auto w-full">
+                  {activeSession.isSummaryView ? (
+                    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
+                      <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-8">
+                        <h1 className="text-2xl md:text-3xl font-bold text-orange-400 flex items-center gap-3">
+                          <i className="fas fa-check-circle shrink-0" style={{fontSize: '32px'}}></i>
+                          <span className="truncate">Framework: {activeSession.title}</span>
+                        </h1>
+                        <div className="flex flex-col sm:flex-row w-full md:w-auto gap-3">
+                          <button 
+                            onClick={exportData}
+                            className="flex-1 md:flex-none items-center justify-center flex gap-2 bg-slate-700 hover:bg-slate-600 px-5 py-3 md:py-2.5 rounded-xl transition-colors font-medium shadow-sm"
+                          >
+                            <i className="fas fa-download" style={{fontSize: '18px'}}></i> Export
+                          </button>
+                          <button 
+                            onClick={() => updateActiveSession({ isSummaryView: false })}
+                            className="flex-1 md:flex-none items-center justify-center flex gap-2 bg-slate-800 border border-slate-600 hover:bg-slate-700 px-5 py-3 md:py-2.5 rounded-xl transition-colors font-medium shadow-sm"
+                          >
+                            Edit Entries
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {STAGES.map((stage) => {
+                          return (
+                            <div key={stage.id} className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700/50 shadow-lg backdrop-blur-sm">
+                              <div className="flex items-center gap-3 text-orange-400 mb-3">
+                                <i className={stage.icon} style={{fontSize: '24px'}}></i>
+                                <h2 className="text-xl font-semibold">{stage.title}</h2>
+                              </div>
+                              <p className="text-slate-400 text-sm mb-3">{stage.question}</p>
+                              <div className="bg-slate-900/80 p-4 rounded-xl whitespace-pre-wrap min-h-[100px] border border-slate-800 text-slate-200">
+                                {activeSession.formData[stage.id] || <span className="text-slate-600 italic">No entry provided.</span>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="mt-8 bg-gradient-to-r from-orange-900/40 to-slate-800/40 border border-orange-700/50 p-8 rounded-3xl text-center shadow-2xl">
+                        <h3 className="text-2xl font-semibold text-orange-300 mb-3">Did it completely work?</h3>
+                        <p className="text-slate-300 mb-8 max-w-2xl mx-auto text-lg leading-relaxed">
+                          If the solution failed or needs improvement, use the information gained to revise your understanding or try another approach. Problem-solving is iterative!
+                        </p>
+                        <div className="flex flex-col sm:flex-row justify-center gap-4">
+                          <button 
+                            onClick={handleIterate}
+                            className="flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-500 text-white px-8 py-4 rounded-xl font-semibold transition-all shadow-lg shadow-orange-600/30 hover:shadow-orange-600/50"
+                          >
+                            <i className="fas fa-sync-alt" style={{fontSize: '20px'}}></i> Iterate (Back to Understanding)
+                          </button>
+                          <button 
+                            onClick={handleNewSession}
+                            className="flex items-center justify-center gap-2 bg-slate-700 hover:bg-slate-600 text-slate-100 px-8 py-4 rounded-xl font-semibold transition-all shadow-lg"
+                          >
+                            <i className="fas fa-plus" style={{fontSize: '20px'}}></i> Start a New Problem
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col flex-grow w-full max-w-3xl mx-auto pb-8">
+                      <div className="mb-8 mt-2">
+                        <div className="flex justify-between items-center relative px-2">
+                          <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-1.5 bg-slate-800/80 z-0 rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-orange-500 transition-all duration-500 ease-out"
+                                style={{ width: `${(activeSession.currentStep / (STAGES.length - 1)) * 100}%` }}
+                              />
+                          </div>
+
+                          {STAGES.map((stage, index) => {
+                            const isCompleted = index < activeSession.currentStep;
+                            const isCurrent = index === activeSession.currentStep;
+                            
+                            return (
+                              <div 
+                                key={stage.id} 
+                                className={`relative z-10 flex items-center justify-center w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 rounded-full border-4 transition-all duration-300
+                                  ${isCurrent ? 'bg-slate-900 border-orange-500 text-orange-400 scale-110 shadow-[0_0_20px_rgba(249,115,22,0.3)]' : 
+                                    isCompleted ? 'bg-orange-500 border-orange-500 text-white' : 
+                                    'bg-slate-900 border-slate-800 text-slate-600'}`}
+                                title={stage.title}
+                              >
+                                <i className={stage.icon} style={{ fontSize: isCurrent || isCompleted ? '18px' : '14px' }}></i>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="flex justify-between mt-4 text-[10px] sm:text-xs md:text-sm font-medium text-slate-500 px-1 sm:px-2 uppercase tracking-wide">
+                           <span>Goal</span>
+                           <span>Feedback</span>
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-800/40 border border-slate-700/60 rounded-3xl p-5 sm:p-6 md:p-10 shadow-2xl flex-grow flex flex-col backdrop-blur-md">
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 text-orange-400 mb-4">
+                          <div className="p-3 sm:p-4 bg-slate-900/80 rounded-2xl shadow-inner border border-slate-700/50 self-start sm:self-auto">
+                            <i className={`${currentStageInfo.icon} drop-shadow-md`} style={{fontSize: '28px'}}></i>
+                          </div>
+                          <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight">{currentStageInfo.title}</h2>
+                        </div>
+                        
+                        <div className="mb-6 sm:mb-8 space-y-3">
+                          <p className="text-slate-300 text-base sm:text-lg">
+                            <span className="font-semibold text-slate-100">What Happens:</span> {currentStageInfo.whatHappens}
+                          </p>
+                          <div className="inline-block bg-orange-950/30 border border-orange-500/20 px-3 sm:px-4 py-2 rounded-lg">
+                            <p className="text-orange-300 text-lg sm:text-xl font-semibold tracking-wide">
+                              {currentStageInfo.question}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex-grow flex flex-col">
+                          {currentStageInfo.id === 'solutions' ? (
+                            <div className="flex flex-col gap-6 w-full animate-in fade-in duration-300">
+                              
+                              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                
+                                <div className="bg-slate-900/50 border border-slate-700/50 rounded-2xl p-4 sm:p-5 shadow-inner flex flex-col">
+                                  <div className="mb-4">
+                                    <h3 className="font-bold text-orange-400 text-base sm:text-lg flex items-center gap-2">
+                                      <i className="fas fa-cog" style={{fontSize: '18px'}}></i> Search & Transformation
+                                    </h3>
+                                    <p className="text-xs font-medium text-slate-400 mt-1 bg-slate-950/50 inline-block px-2 py-1 rounded">
+                                      Required Change + Available Means → Possible Solution
+                                    </p>
+                                  </div>
+                                  
+                                  <div className="space-y-4 flex-grow">
+                                    <div>
+                                      <label className="text-xs font-semibold text-slate-300 ml-1">1. Required Change</label>
+                                      <p className="text-[10px] text-slate-500 ml-1 mb-1">What must become different for the problem to disappear?</p>
+                                      <input 
+                                        name="reqChange" 
+                                        value={activeSession.formData.reqChange || ''} 
+                                        onChange={handleInputChange} 
+                                        className="w-full bg-slate-950/50 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-200 focus:ring-2 focus:ring-orange-500/50 outline-none transition-all" 
+                                        placeholder="e.g., Increase battery's stored energy" 
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-xs font-semibold text-slate-300 ml-1">2. Available Means</label>
+                                      <p className="text-[10px] text-slate-500 ml-1 mb-1">What resources, actions, or mechanisms could produce that change?</p>
+                                      <input 
+                                        name="availableMeans" 
+                                        value={activeSession.formData.availableMeans || ''} 
+                                        onChange={handleInputChange} 
+                                        className="w-full bg-slate-950/50 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-200 focus:ring-2 focus:ring-orange-500/50 outline-none transition-all" 
+                                        placeholder="e.g., A compatible charger and outlet" 
+                                      />
+                                    </div>
+                                  </div>
+                                  
+                                  <button
+                                    onClick={() => {
+                                      if(!activeSession.formData.reqChange && !activeSession.formData.availableMeans) return;
+                                      const newSol = `• [Transformation] Change: "${activeSession.formData.reqChange || ''}" using Means: "${activeSession.formData.availableMeans || ''}"`;
+                                      const currentSols = activeSession.formData.solutions || '';
+                                      
+                                      updateActiveSession({
+                                        formData: {
+                                          ...activeSession.formData,
+                                          solutions: currentSols ? currentSols + '\n' + newSol : newSol,
+                                          reqChange: '',
+                                          availableMeans: ''
+                                        }
+                                      });
+                                    }}
+                                    className="mt-4 w-full bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 text-sm py-2.5 rounded-xl font-medium transition-all shadow-sm flex items-center justify-center gap-2 group"
+                                  >
+                                    <i className="fas fa-plus group-hover:text-orange-400 transition-colors" style={{fontSize: '16px'}}></i> Generate Solution
+                                  </button>
+                                </div>
+
+                                <div className="bg-slate-900/50 border border-slate-700/50 rounded-2xl p-4 sm:p-5 shadow-inner flex flex-col sm:max-h-[500px]">
+                                  <div className="mb-4 shrink-0">
+                                    <h3 className="font-bold text-orange-400 text-base sm:text-lg flex items-center gap-2">
+                                      <i className="fas fa-puzzle-piece" style={{fontSize: '18px'}}></i> Discovery Patterns
+                                    </h3>
+                                    <p className="text-[11px] font-medium text-slate-400 mt-1 bg-slate-950/50 inline-block px-2 py-1 rounded">
+                                      Central Principle: Find a feasible change making the outcome achievable.
+                                    </p>
+                                  </div>
+                                  
+                                  <div className="space-y-4 overflow-y-auto pr-2 flex-grow">
+                                    {[
+                                      { id: 'patternObstacle', title: '1. Remove an Obstacle', desc: 'What is blocking progress, and can it be removed?', placeholder: 'e.g., Unlock the door with a key', prefix: 'Remove Obstacle' },
+                                      { id: 'patternMissing', title: "2. Supply What's Missing", desc: 'What essential element is currently absent?', placeholder: 'e.g., Need a budget tracker app', prefix: 'Supply Missing' },
+                                      { id: 'patternMethod', title: '3. Change the Method', desc: 'Can you find another path to the goal?', placeholder: 'e.g., Take a train instead of driving', prefix: 'Change Method' },
+                                      { id: 'patternConditions', title: '4. Change the Conditions', desc: 'Can you modify the circumstances affecting progress?', placeholder: 'e.g., Negotiate a flexible deadline', prefix: 'Change Conditions' },
+                                      { id: 'patternDecompose', title: '5. Decompose the Problem', desc: 'Can you replace one difficult transition with smaller transitions?', placeholder: 'e.g., Break the project into 3 small phases', prefix: 'Decompose Problem' }
+                                    ].map(pattern => (
+                                      <div key={pattern.id}>
+                                        <label className="text-xs font-semibold text-slate-300 ml-1">{pattern.title}</label>
+                                        <p className="text-[10px] text-slate-500 ml-1 mb-1">{pattern.desc}</p>
+                                        <div className="flex gap-2">
+                                          <input 
+                                            name={pattern.id} 
+                                            value={activeSession.formData[pattern.id] || ''} 
+                                            onChange={handleInputChange} 
+                                            className="flex-1 bg-slate-950/50 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200 focus:ring-2 focus:ring-orange-500/50 outline-none transition-all" 
+                                            placeholder={pattern.placeholder} 
+                                          />
+                                          <button 
+                                            onClick={() => {
+                                              if(!activeSession.formData[pattern.id]) return;
+                                              const newSol = `• [Pattern: ${pattern.prefix}] ${activeSession.formData[pattern.id]}`;
+                                              const currentSols = activeSession.formData.solutions || '';
+                                              
+                                              updateActiveSession({
+                                                formData: {
+                                                  ...activeSession.formData,
+                                                  solutions: currentSols ? currentSols + '\n' + newSol : newSol,
+                                                  [pattern.id]: ''
+                                                }
+                                              });
+                                            }}
+                                            className="bg-slate-800 hover:bg-slate-700 border border-slate-600 px-3 rounded-xl text-slate-200 transition-colors flex items-center justify-center shrink-0"
+                                            title="Add to Solutions"
+                                          >
+                                            <i className="fas fa-plus" style={{fontSize: '18px'}}></i>
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="flex flex-col flex-grow mt-2">
+                                <label className="text-sm font-semibold text-orange-300 mb-2 ml-1 flex items-center justify-between">
+                                  <span>Synthesized Solutions</span>
+                                  <span className="text-xs text-slate-500 font-normal">Remember to check for feasibility, safety, and effectiveness.</span>
+                                </label>
+                                <textarea
+                                  name={currentStageInfo.id}
+                                  value={activeSession.formData[currentStageInfo.id]}
+                                  onChange={handleInputChange}
+                                  placeholder="Your solutions will appear here. You can also type directly..."
+                                  className="w-full flex-grow min-h-[150px] bg-slate-900/80 text-slate-100 border-2 border-slate-700/50 rounded-2xl p-5 focus:ring-4 focus:ring-orange-500/20 focus:border-orange-500 outline-none resize-none transition-all placeholder:text-slate-600 text-lg leading-relaxed shadow-inner"
+                                />
+                              </div>
+                            </div>
+                          ) : (
+                            <textarea
+                              name={currentStageInfo.id}
+                              value={activeSession.formData[currentStageInfo.id]}
+                              onChange={handleInputChange}
+                              placeholder={currentStageInfo.placeholder}
+                              className="w-full flex-grow min-h-[200px] bg-slate-900/60 text-slate-100 border-2 border-slate-700/50 rounded-2xl p-5 sm:p-6 focus:ring-4 focus:ring-orange-500/20 focus:border-orange-500 outline-none resize-none transition-all placeholder:text-slate-600 text-base sm:text-lg md:text-xl leading-relaxed shadow-inner"
+                            />
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col-reverse sm:flex-row justify-between mt-8 gap-4">
+                        <button
+                          onClick={handlePrev}
+                          disabled={activeSession.currentStep === 0}
+                          className={`flex items-center justify-center gap-2 px-4 py-3 sm:px-6 sm:py-4 rounded-xl font-semibold transition-all w-full sm:w-auto text-sm sm:text-base
+                            ${activeSession.currentStep === 0 
+                              ? 'opacity-0 pointer-events-none hidden sm:flex' 
+                              : 'text-slate-200 bg-slate-800 hover:bg-slate-700 border border-slate-600 shadow-lg hover:shadow-xl'}`}
+                        >
+                          <i className="fas fa-chevron-left" style={{fontSize: '18px'}}></i> Previous
+                        </button>
+
+                        <button
+                          onClick={handleNext}
+                          className="flex items-center justify-center gap-2 px-6 py-3 sm:px-8 sm:py-4 rounded-xl font-semibold bg-orange-600 hover:bg-orange-500 text-white transition-all shadow-lg shadow-orange-600/30 hover:shadow-orange-600/50 hover:-translate-y-0.5 w-full sm:w-auto text-sm sm:text-base"
+                        >
+                          {activeSession.currentStep === STAGES.length - 1 ? 'Finish & Review' : 'Next Step'} 
+                          {activeSession.currentStep !== STAGES.length - 1 && <i className="fas fa-chevron-right" style={{fontSize: '18px'}}></i>}
+                        </button>
+                      </div>
+                      
+                      <div className="mt-6 sm:mt-8 text-center pb-4">
+                          <button 
+                            onClick={() => updateActiveSession({ isSummaryView: true })}
+                            className="text-slate-500 hover:text-slate-300 text-xs sm:text-sm font-medium transition-colors border-b border-transparent hover:border-slate-300 pb-0.5"
+                          >
+                            Skip to Summary Dashboard
+                          </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<ProblemSolverApp />);
+    </script>
+</body>
+</html>
